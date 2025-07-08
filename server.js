@@ -1,6 +1,6 @@
 // server.js
 const WebSocket = require('ws');
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const server = new WebSocket.Server({ port: PORT });
 
 let clients = [];
