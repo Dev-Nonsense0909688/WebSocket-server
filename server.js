@@ -25,7 +25,7 @@ wss.on("connection", socket => {
 });
 
 // Use Railway's PORT
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
