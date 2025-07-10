@@ -12,16 +12,20 @@ wss.on("connection", (ws) => {
   let username = null;
 
   ws.send("Welcome! Set username: /user yourname");
-  
-  if (msg === '/receivers') {
-  const receiverList = [...clients.keys()].filter(name => name.startsWith('receiver_'));
-  ws.send(`[Receivers Online]: ${receiverList.join(', ') || 'None'}`);
-  return;
-}
+
   ws.on("message", (message) => {
     const msg = message.toString().trim();
 
-    // Set username
+    // Handle receiver list request
+    if (msg === '/receivers') {
+      const receiverList = [...clients.keys()].filter(name =>
+        name.startsWith('receiver_')
+      );
+      ws.send(`[Receivers Online]: ${receiverList.join(', ') || 'None'}`);
+      return;
+    }
+
+    // Handle setting username
     if (msg.startsWith("/user ")) {
       const name = msg.slice(6).trim();
       if (!name || clients.has(name)) {
@@ -39,7 +43,7 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    // Private message
+    // Handle private message
     if (msg.startsWith("/to ")) {
       const parts = msg.slice(4).split(" ");
       const targetUser = parts.shift();
