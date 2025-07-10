@@ -3,29 +3,33 @@ const http = require("http");
 
 const PORT = process.env.PORT || 3000;
 
-const server = http.createServer();
-const wss = new WebSocket.Server({ server });
+// Basic HTTP response for Render or health checks
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("WebSocket server running.");
+});
 
+const wss = new WebSocket.Server({ server });
 const clients = new Map(); // username -> socket
 
 wss.on("connection", (ws) => {
   let username = null;
 
-  ws.send("Welcome! Set username: /user yourname");
+  ws.send("👋 Welcome! Set username: /user yourname");
 
   ws.on("message", (message) => {
     const msg = message.toString().trim();
 
-    // Handle receiver list request
-    if (msg === '/receivers') {
+    // 🔍 Handle receiver list request
+    if (msg === "/receivers") {
       const receiverList = [...clients.keys()].filter(name =>
-        name.startsWith('receiver_')
+        name.startsWith("receiver_")
       );
-      ws.send(`[Receivers Online]: ${receiverList.join(', ') || 'None'}`);
+      ws.send(`[Receivers Online]: ${receiverList.join(", ") || "None"}`);
       return;
     }
 
-    // Handle setting username
+    // ✅ Set username
     if (msg.startsWith("/user ")) {
       const name = msg.slice(6).trim();
       if (!name || clients.has(name)) {
@@ -38,12 +42,13 @@ wss.on("connection", (ws) => {
       return;
     }
 
+    // ❗ User must be set
     if (!username) {
       ws.send("❗ Set username first using /user yourname");
       return;
     }
 
-    // Handle private message
+    // 📩 Private message
     if (msg.startsWith("/to ")) {
       const parts = msg.slice(4).split(" ");
       const targetUser = parts.shift();
@@ -57,7 +62,7 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    // Broadcast to everyone except sender
+    // 🌍 Broadcast to all except sender
     for (let [name, clientWs] of clients) {
       if (clientWs !== ws && clientWs.readyState === WebSocket.OPEN) {
         clientWs.send(`${username}: ${msg}`);
@@ -73,7 +78,7 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("error", (err) => {
-    console.error("WebSocket error:", err.message);
+    console.error("❌ WebSocket error:", err.message);
   });
 });
 
