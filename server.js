@@ -12,7 +12,12 @@ wss.on("connection", (ws) => {
   let username = null;
 
   ws.send("Welcome! Set username: /user yourname");
-
+  
+  if (msg === '/receivers') {
+  const receiverList = [...clients.keys()].filter(name => name.startsWith('receiver_'));
+  ws.send(`[Receivers Online]: ${receiverList.join(', ') || 'None'}`);
+  return;
+}
   ws.on("message", (message) => {
     const msg = message.toString().trim();
 
