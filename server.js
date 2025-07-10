@@ -1,54 +1,37 @@
 const http = require("http");
 const WebSocket = require("ws");
 
-// 🎨 Terminal colors for logs
-const COLORS = {
-  reset: "\x1b[0m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  blue: "\x1b[34m",
-  magenta: "\x1b[35m",
-  cyan: "\x1b[36m",
-  bold: "\x1b[1m",
-};
-
-// 🧠 Admin nicknames
 const ADMIN_LIST = ["Nonsense", "AdminGod", "Root"];
-
-// 🗺️ Store all clients
 const clients = new Map(); // Map<WebSocket, { nickname, isAdmin, ip }>
 
-// 🌐 Basic HTTP server for keep-alive or status check
 const server = http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("🟢 WebSocket chat server with admin control is running.");
+  res.end("WebSocket control server is running.");
 });
 
-// 🌐 WebSocket server
 const wss = new WebSocket.Server({ server });
 
 wss.on("connection", (ws, req) => {
-  const ip = req.socket.remoteAddress?.replace(/^.*:/, '') || "unknown";
-  console.log(`${COLORS.green}✅ New connection from IP: ${ip}${COLORS.reset}`);
+  const ip = req.socket.remoteAddress?.replace(/^.*:/, "") || "unknown";
+  console.log(`[+] New connection from IP: ${ip}`);
 
-  ws.send("👋 Welcome! Please enter your nickname:");
+  ws.send("Please send your nickname:");
 
   let registered = false;
 
   ws.on("message", (message) => {
     const text = message.toString().trim();
 
-    // 👤 First message = nickname
+    // First message = nickname
     if (!registered) {
-      const nickname = text.slice(0, 20);
+      const nickname = text.slice(0, 32);
       const isAdmin = ADMIN_LIST.includes(nickname);
 
       clients.set(ws, { nickname, isAdmin, ip });
       registered = true;
 
-      console.log(`${COLORS.cyan}🙋 ${nickname}${isAdmin ? " 👑 (Admin)" : ""} joined from ${ip}${COLORS.reset}`);
-      broadcast(`${nickname} joined the chat.`, ws);
+      const role = isAdmin ? "ADMIN" : "SLAVE";
+      console.log(`[+] ${role} connected: ${nickname} (${ip})`);
       return;
     }
 
@@ -57,54 +40,41 @@ wss.on("connection", (ws, req) => {
 
     const { nickname, isAdmin } = clientInfo;
 
-    // 🧠 Handle admin command
     if (isAdmin && text.startsWith("/command ")) {
       const command = text.slice(9).trim();
-      console.log(`${COLORS.yellow}⚙️ Admin ${nickname} issued command: ${command}${COLORS.reset}`);
-      sendCommandToClients(command);
-      return;
+      console.log(`[!] Admin ${nickname} issued command: ${command}`);
+      sendCommandToSlaves(command);
+    } else if (isAdmin) {
+      console.log(`[MSG] Admin ${nickname}: ${text}`);
+    } else {
+      // Slave tried to send a message — ignore it
+      console.log(`[BLOCK] Slave ${nickname} tried to send a message. Ignored.`);
     }
-
-    // 💬 Regular message
-    const formatted = `${nickname}: ${text}`;
-    console.log(`${COLORS.magenta}💬 ${formatted}${COLORS.reset}`);
-    broadcast(formatted, ws);
   });
 
   ws.on("close", () => {
     const info = clients.get(ws);
     if (info) {
-      console.log(`${COLORS.red}❌ ${info.nickname} disconnected (IP: ${info.ip})${COLORS.reset}`);
-      broadcast(`${info.nickname} left the chat.`, ws);
+      const role = info.isAdmin ? "ADMIN" : "SLAVE";
+      console.log(`[-] ${role} disconnected: ${info.nickname} (${info.ip})`);
       clients.delete(ws);
     }
   });
 
   ws.on("error", (err) => {
-    console.error(`${COLORS.red}⚠️ WebSocket error: ${err.message}${COLORS.reset}`);
+    console.error(`[ERROR] WebSocket error: ${err.message}`);
   });
 });
 
-// 📢 Send message to all except sender
-function broadcast(msg, sender) {
-  for (let [client] of clients.entries()) {
-    if (client.readyState === WebSocket.OPEN && client !== sender) {
-      client.send(msg);
-    }
-  }
-}
-
-// 🚨 Send command to ALL non-admin clients
-function sendCommandToClients(command) {
-  for (let [client, { isAdmin }] of clients.entries()) {
+function sendCommandToSlaves(command) {
+  for (const [client, { isAdmin }] of clients.entries()) {
     if (client.readyState === WebSocket.OPEN && !isAdmin) {
       client.send(`[COMMAND]: ${command}`);
     }
   }
 }
 
-// 🚀 Start server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`${COLORS.bold}${COLORS.blue}🚀 Server running on port ${PORT}${COLORS.reset}`);
+  console.log(`[*] Server listening on port ${PORT}`);
 });
