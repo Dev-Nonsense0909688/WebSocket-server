@@ -1,54 +1,54 @@
-const WebSocket = require('ws');
-const http = require('http');
+const WebSocket = require("ws");
+const http = require("http");
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
-const clients = new Map(); // username -> websocket
+const clients = new Map(); // username -> socket
 
-wss.on('connection', (ws) => {
+wss.on("connection", (ws) => {
   let username = null;
 
-  ws.send('Welcome! Please send your username first using: /user yourname');
+  ws.send("Welcome! Set username: /user yourname");
 
-  ws.on('message', (message) => {
+  ws.on("message", (message) => {
     const msg = message.toString().trim();
 
-    // Handle setting username
-    if (msg.startsWith('/user ')) {
+    // Set username
+    if (msg.startsWith("/user ")) {
       const name = msg.slice(6).trim();
       if (!name || clients.has(name)) {
-        ws.send('Username invalid or taken. Try another.');
+        ws.send("❌ Username invalid or taken.");
         return;
       }
       username = name;
       clients.set(username, ws);
-      ws.send(`Username set to "${username}". You can now send messages!`);
+      ws.send(`✅ You are now "${username}"`);
       return;
     }
 
     if (!username) {
-      ws.send('Set a username first using /user yourname');
+      ws.send("❗ Set username first using /user yourname");
       return;
     }
 
-    // Private message: /to targetUser message here
-    if (msg.startsWith('/to ')) {
-      const split = msg.slice(4).split(' ');
-      const targetUser = split.shift();
-      const msgBody = split.join(' ');
+    // Private message
+    if (msg.startsWith("/to ")) {
+      const parts = msg.slice(4).split(" ");
+      const targetUser = parts.shift();
+      const msgBody = parts.join(" ");
       const targetSocket = clients.get(targetUser);
       if (!targetSocket) {
-        ws.send(`User "${targetUser}" not found.`);
+        ws.send(`❌ User "${targetUser}" not found.`);
         return;
       }
-      targetSocket.send(`[Private] ${username}: ${msgBody}`);
+      targetSocket.send(`[DM from ${username}] ${msgBody}`);
       return;
     }
 
-    // Broadcast message to everyone else
+    // Broadcast to everyone except sender
     for (let [name, clientWs] of clients) {
       if (clientWs !== ws && clientWs.readyState === WebSocket.OPEN) {
         clientWs.send(`${username}: ${msg}`);
@@ -56,12 +56,18 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => {
-    if (username) clients.delete(username);
-    console.log(`${username || 'Unknown'} disconnected`);
+  ws.on("close", () => {
+    if (username) {
+      clients.delete(username);
+      console.log(`👋 ${username} disconnected`);
+    }
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error:", err.message);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`WebSocket chat server running on ws://localhost:${PORT}`);
+  console.log(`✅ WebSocket server running on port ${PORT}`);
 });
