@@ -62,6 +62,7 @@ function registerClient(ws, nickname, ip) {
   const role = isAdmin ? "ADMIN" : "SLAVE";
   console.log(`[+] ${role} connected: ${trimmed} (${ip})`);
   ws._nickname = trimmed; // helpful for easier mapping
+  ws._registered = true;
 }
 
 function handleAdminMessage(ws, nickname, text) {
