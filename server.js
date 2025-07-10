@@ -1,85 +1,87 @@
-<script>
-  const ws = new WebSocket("wss://websocket-server-no6j.onrender.com");
+const WebSocket = require("ws");
+const http = require("http");
 
-  const loginBox = document.getElementById("login");
-  const appBox = document.getElementById("app");
-  const usernameInput = document.getElementById("username");
-  const messageInput = document.getElementById("message");
-  const chatBox = document.getElementById("chat");
-  const receiverList = document.getElementById("receiverList");
-  const receiverStatus = document.getElementById("receiverStatus");
+const PORT = process.env.PORT || 3000;
 
-  const dmBox = document.getElementById("dmBox");
-  const dmTarget = document.getElementById("dmTarget");
-  const dmMessage = document.getElementById("dmMessage");
+// Basic HTTP response for Render or health checks
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("WebSocket server running.");
+});
 
-  let usernameSet = false;
-  let currentDMTarget = null;
+const wss = new WebSocket.Server({ server });
+const clients = new Map(); // username -> socket
 
-  function append(msg) {
-    chatBox.textContent += msg + "\n";
-    chatBox.scrollTop = chatBox.scrollHeight;
+wss.on("connection", (ws) => {
+  let username = null;
 
-    if (msg.startsWith("[Receivers Online]:")) {
-      const rawList = msg.split(":")[1].trim();
-      const list = rawList === "None" ? [] : rawList.split(",").map(x => x.trim());
-      receiverStatus.textContent = `🟢 ${list.length} online`;
+  ws.send("👋 Welcome! Set username: /user yourname");
 
-      receiverList.innerHTML = list.length
-        ? list.map(name => `<div onclick="openDM('${name}')">${name}</div>`).join("")
-        : "<div>No receivers online.</div>";
-    }
-  }
+  ws.on("message", (message) => {
+    const msg = message.toString().trim();
 
-  function openDM(name) {
-    currentDMTarget = name;
-    dmTarget.textContent = "DMing: " + name;
-    dmBox.classList.remove("hidden");
-    dmMessage.focus();
-  }
-
-  function sendDM() {
-    const msg = dmMessage.value.trim();
-    if (!msg || !currentDMTarget || ws.readyState !== WebSocket.OPEN) return;
-
-    ws.send(`/to ${currentDMTarget} ${msg}`);
-    append(`[You → ${currentDMTarget}]: ${msg}`);
-    dmMessage.value = "";
-  }
-
-  ws.onopen = () => {
-    append("[System] Connected to server.");
-    setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN && usernameSet) {
-        ws.send("/receivers");
-      }
-    }, 3000);
-  };
-
-  ws.onmessage = (e) => append(e.data);
-  ws.onclose = () => append("[System] Disconnected from server.");
-  ws.onerror = (e) => append("[Error] WebSocket error");
-
-  function setUsername() {
-    const name = usernameInput.value.trim();
-    if (!name || ws.readyState !== WebSocket.OPEN) {
-      append("[Error] WebSocket not ready or name empty.");
+    // 🔍 Handle receiver list request
+    if (msg === "/receivers") {
+      const receiverList = [...clients.keys()].filter(name =>
+        name.startsWith("receiver_")
+      );
+      ws.send(`[Receivers Online]: ${receiverList.join(", ") || "None"}`);
       return;
     }
 
-    ws.send("/user " + name);
-    usernameSet = true;
+    // ✅ Set username
+    if (msg.startsWith("/user ")) {
+      const name = msg.slice(6).trim();
+      if (!name || clients.has(name)) {
+        ws.send("❌ Username invalid or taken.");
+        return;
+      }
+      username = name;
+      clients.set(username, ws);
+      ws.send(`✅ You are now "${username}"`);
+      return;
+    }
 
-    loginBox.classList.add("hidden");
-    appBox.classList.remove("hidden");
-    append(`[System] You are now "${name}"`);
-  }
+    // ❗ User must be set
+    if (!username) {
+      ws.send("❗ Set username first using /user yourname");
+      return;
+    }
 
-  function sendMsg() {
-    const msg = messageInput.value.trim();
-    if (!msg || ws.readyState !== WebSocket.OPEN) return;
+    // 📩 Private message
+    if (msg.startsWith("/to ")) {
+      const parts = msg.slice(4).split(" ");
+      const targetUser = parts.shift();
+      const msgBody = parts.join(" ");
+      const targetSocket = clients.get(targetUser);
+      if (!targetSocket) {
+        ws.send(`❌ User "${targetUser}" not found.`);
+        return;
+      }
+      targetSocket.send(`[DM from ${username}] ${msgBody}`);
+      return;
+    }
 
-    ws.send(msg);
-    messageInput.value = '';
-  }
-</script>
+    // 🌍 Broadcast to all except sender
+    for (let [name, clientWs] of clients) {
+      if (clientWs !== ws && clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(`${username}: ${msg}`);
+      }
+    }
+  });
+
+  ws.on("close", () => {
+    if (username) {
+      clients.delete(username);
+      console.log(`👋 ${username} disconnected`);
+    }
+  });
+
+  ws.on("error", (err) => {
+    console.error("❌ WebSocket error:", err.message);
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`✅ WebSocket server running on port ${PORT}`);
+});
