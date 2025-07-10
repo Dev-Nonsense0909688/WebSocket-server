@@ -1,80 +1,85 @@
-const http = require("http");
-const WebSocket = require("ws");
+<script>
+  const ws = new WebSocket("wss://websocket-server-no6j.onrender.com");
 
-const ADMIN_LIST = ["Nonsense", "AdminGod", "Root"];
-const clients = new Map(); // Map<WebSocket, { nickname, isAdmin, ip }>
+  const loginBox = document.getElementById("login");
+  const appBox = document.getElementById("app");
+  const usernameInput = document.getElementById("username");
+  const messageInput = document.getElementById("message");
+  const chatBox = document.getElementById("chat");
+  const receiverList = document.getElementById("receiverList");
+  const receiverStatus = document.getElementById("receiverStatus");
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end("WebSocket control server is running.");
-});
+  const dmBox = document.getElementById("dmBox");
+  const dmTarget = document.getElementById("dmTarget");
+  const dmMessage = document.getElementById("dmMessage");
 
-const wss = new WebSocket.Server({ server });
+  let usernameSet = false;
+  let currentDMTarget = null;
 
-wss.on("connection", (ws, req) => {
-  const ip = req.socket.remoteAddress?.replace(/^.*:/, "") || "unknown";
-  console.log(`[+] New connection from IP: ${ip}`);
+  function append(msg) {
+    chatBox.textContent += msg + "\n";
+    chatBox.scrollTop = chatBox.scrollHeight;
 
-  ws.send("Please send your nickname:");
+    if (msg.startsWith("[Receivers Online]:")) {
+      const rawList = msg.split(":")[1].trim();
+      const list = rawList === "None" ? [] : rawList.split(",").map(x => x.trim());
+      receiverStatus.textContent = `🟢 ${list.length} online`;
 
-  let registered = false;
+      receiverList.innerHTML = list.length
+        ? list.map(name => `<div onclick="openDM('${name}')">${name}</div>`).join("")
+        : "<div>No receivers online.</div>";
+    }
+  }
 
-  ws.on("message", (message) => {
-    const text = message.toString().trim();
+  function openDM(name) {
+    currentDMTarget = name;
+    dmTarget.textContent = "DMing: " + name;
+    dmBox.classList.remove("hidden");
+    dmMessage.focus();
+  }
 
-    // First message = nickname
-    if (!registered) {
-      const nickname = text.slice(0, 32);
-      const isAdmin = ADMIN_LIST.includes(nickname);
+  function sendDM() {
+    const msg = dmMessage.value.trim();
+    if (!msg || !currentDMTarget || ws.readyState !== WebSocket.OPEN) return;
 
-      clients.set(ws, { nickname, isAdmin, ip });
-      registered = true;
+    ws.send(`/to ${currentDMTarget} ${msg}`);
+    append(`[You → ${currentDMTarget}]: ${msg}`);
+    dmMessage.value = "";
+  }
 
-      const role = isAdmin ? "ADMIN" : "SLAVE";
-      console.log(`[+] ${role} connected: ${nickname} (${ip})`);
+  ws.onopen = () => {
+    append("[System] Connected to server.");
+    setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN && usernameSet) {
+        ws.send("/receivers");
+      }
+    }, 3000);
+  };
+
+  ws.onmessage = (e) => append(e.data);
+  ws.onclose = () => append("[System] Disconnected from server.");
+  ws.onerror = (e) => append("[Error] WebSocket error");
+
+  function setUsername() {
+    const name = usernameInput.value.trim();
+    if (!name || ws.readyState !== WebSocket.OPEN) {
+      append("[Error] WebSocket not ready or name empty.");
       return;
     }
 
-    const clientInfo = clients.get(ws);
-    if (!clientInfo) return;
+    ws.send("/user " + name);
+    usernameSet = true;
 
-    const { nickname, isAdmin } = clientInfo;
-
-    if (isAdmin && text.startsWith("/command ")) {
-      const command = text.slice(9).trim();
-      console.log(`[!] Admin ${nickname} issued command: ${command}`);
-      sendCommandToSlaves(command);
-    } else if (isAdmin) {
-      console.log(`[MSG] Admin ${nickname}: ${text}`);
-    } else {
-      // Slave tried to send a message — ignore it
-      console.log(`[BLOCK] Slave ${nickname} tried to send a message. Ignored.`);
-    }
-  });
-
-  ws.on("close", () => {
-    const info = clients.get(ws);
-    if (info) {
-      const role = info.isAdmin ? "ADMIN" : "SLAVE";
-      console.log(`[-] ${role} disconnected: ${info.nickname} (${info.ip})`);
-      clients.delete(ws);
-    }
-  });
-
-  ws.on("error", (err) => {
-    console.error(`[ERROR] WebSocket error: ${err.message}`);
-  });
-});
-
-function sendCommandToSlaves(command) {
-  for (const [client, { isAdmin }] of clients.entries()) {
-    if (client.readyState === WebSocket.OPEN && !isAdmin) {
-      client.send(`[COMMAND]: ${command}`);
-    }
+    loginBox.classList.add("hidden");
+    appBox.classList.remove("hidden");
+    append(`[System] You are now "${name}"`);
   }
-}
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`[*] Server listening on port ${PORT}`);
-});
+  function sendMsg() {
+    const msg = messageInput.value.trim();
+    if (!msg || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(msg);
+    messageInput.value = '';
+  }
+</script>
