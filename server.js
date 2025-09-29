@@ -1,23 +1,28 @@
 const WebSocket = require('ws');
-
 const wss = new WebSocket.Server({ port: 6789 });
-const clients = new Set();
-
+const clients = new Map(); // Map ws -> username
 wss.on('connection', (ws) => {
-  clients.add(ws);
-
+  let userName = null;
   ws.on('message', (message) => {
-    // Broadcast to all other clients except sender
-    for (const client of clients) {
+    // If username not set, treat first message as username
+    if (!userName) {
+      userName = message.toString();
+      clients.set(ws, userName);
+      broadcastAll(`User  <${userName}> has joined the chat`);
+      return;
+    }
+    // Broadcast normal chat messages to others
+    for (const [client, name] of clients.entries()) {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(message);
       }
     }
   });
-
   ws.on('close', () => {
-    clients.delete(ws);
+    if (userName) {
+      clients.delete(ws);
+      broadcastAll(`User  <${userName}> has left the chat`);
+    }
   });
 });
-
-console.log('Server running at ws://localhost:6789');
+function broadcastAll(message) {
